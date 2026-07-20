@@ -166,7 +166,13 @@ def process_vision_info(prompt, processor):
 
 
 def encode_image_for_rollout_engine(image) -> str:
-    """Load an image from path, ensure RGB, encode as PNG base64 string."""
+    """Normalize an image accepted by Miles/Verifiers to SGLang's image-data wire form."""
+    if isinstance(image, (str, os.PathLike)):
+        return os.fspath(image)
+    if isinstance(image, (bytes, bytearray, memoryview)):
+        from PIL import Image
+
+        image = Image.open(io.BytesIO(bytes(image)))
     buffer = io.BytesIO()
     if image.mode != "RGB":
         image = image.convert("RGB")

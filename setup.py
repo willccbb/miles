@@ -1,5 +1,5 @@
-import sys
 import platform
+import sys
 
 from setuptools import find_packages, setup
 from wheel.bdist_wheel import bdist_wheel as _bdist_wheel
@@ -50,6 +50,13 @@ setup(
         ],
         "mlflow": [
             "mlflow>=2.0",
+        ],
+        "verifiers": [
+            "verifiers>=0.2.0; python_version >= '3.11'",
+            "renderers>=0.1.8; python_version >= '3.11'",
+            # Miles' SGLang 0.5.15 image pins openai==2.6.1; newer Agents releases
+            # require a newer SDK, while Verifiers supports Agents from 0.0.7 onward.
+            "openai-agents>=0.4.2,<0.5; python_version >= '3.11'",
         ],
     },
     python_requires=">=3.10",

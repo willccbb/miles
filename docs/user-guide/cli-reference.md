@@ -190,6 +190,20 @@ Sections mirror the launch-script argument groups.
 | `--rollout-stop` | str+ | – | Stop strings. |
 | `--rollout-stop-token-ids` | int+ | – | Stop token IDs. |
 
+### Rollout: Verifiers V1
+
+| Flag | Type | Default | Notes |
+|---|---|---|---|
+| `--use-verifiers-v1` | flag | off | Use a Verifiers V1 taskset and harness instead of Miles prompt data. |
+| `--verifiers-v1-config` | path | – | Required V1 EvalConfig-compatible TOML, JSON, or YAML file. |
+| `--verifiers-v1-model` | str | `--hf-checkpoint` | Model name exposed to the Verifiers harness. |
+| `--verifiers-v1-task-offset` | int | `0` | First selected V1 task. |
+| `--verifiers-v1-max-concurrent` | int | derived | Cap concurrent V1 rollouts; defaults to the smaller of the V1 config and aggregate SGLang capacity. |
+| `--verifiers-v1-num-eval-tasks` | int | `--rollout-batch-size` | Number of V1 tasks per evaluation. |
+
+See [Verifiers V1 Rollout](/user-guide/verifiers-v1) for config ownership, supported
+features, and the partial-rollout limitation.
+
 ### Eval
 
 | Flag | Type | Default | Notes |

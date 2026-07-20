@@ -39,6 +39,8 @@ def reset_arg(parser, name, **kwargs):
 
 _FT_CHOICES = ["rollout", "train"]
 
+VERIFIERS_V1_ROLLOUT_FUNCTION_PATH = "miles.rollout.verifiers_v1_rollout.generate_rollout"
+
 
 def get_miles_extra_args_provider(add_custom_arguments=None):
     def add_miles_arguments(parser):
@@ -346,6 +348,49 @@ def get_miles_extra_args_provider(add_custom_arguments=None):
                     "Within each output sample, set at least `tokens`, `response_length`, `reward`, "
                     "and `truncated`."
                 ),
+            )
+            parser.add_argument(
+                "--use-verifiers-v1",
+                action="store_true",
+                default=False,
+                help=(
+                    "Use Verifiers V1 as the rollout environment. "
+                    "This sets --rollout-function-path to Miles' Verifiers V1 adapter and disables "
+                    "Miles prompt-data loading; configure the V1 taskset/harness with --verifiers-v1-config."
+                ),
+            )
+            parser.add_argument(
+                "--verifiers-v1-config",
+                type=str,
+                default=None,
+                help="Path to a Verifiers V1 EvalConfig-compatible TOML, JSON, or YAML file.",
+            )
+            parser.add_argument(
+                "--verifiers-v1-model",
+                type=str,
+                default=None,
+                help=("Model name exposed to Verifiers V1 harnesses. " "Defaults to --hf-checkpoint."),
+            )
+            parser.add_argument(
+                "--verifiers-v1-task-offset",
+                type=int,
+                default=0,
+                help="Starting task index for Verifiers V1 rollout task selection.",
+            )
+            parser.add_argument(
+                "--verifiers-v1-max-concurrent",
+                type=int,
+                default=None,
+                help=(
+                    "Maximum concurrent Verifiers V1 rollouts. "
+                    "Defaults to the smaller of the V1 config limit and Miles' SGLang capacity."
+                ),
+            )
+            parser.add_argument(
+                "--verifiers-v1-num-eval-tasks",
+                type=int,
+                default=None,
+                help="Number of Verifiers V1 tasks to run during Miles eval; defaults to rollout_batch_size.",
             )
             parser.add_argument(
                 "--rollout-temperature",
@@ -2266,6 +2311,32 @@ def miles_validate_args(args):
     args.ft_components = _resolve_ft_components(args)
     args.eval_datasets = _resolve_eval_datasets(args)
 
+    if args.use_verifiers_v1:
+        if args.verifiers_v1_config is None:
+            raise ValueError("--use-verifiers-v1 requires --verifiers-v1-config.")
+        args.rollout_function_path = VERIFIERS_V1_ROLLOUT_FUNCTION_PATH
+        args.rollout_global_dataset = False
+        if args.verifiers_v1_model is None:
+            args.verifiers_v1_model = args.hf_checkpoint
+        if args.verifiers_v1_max_concurrent is not None and args.verifiers_v1_max_concurrent <= 0:
+            raise ValueError("--verifiers-v1-max-concurrent must be greater than zero.")
+        if args.verifiers_v1_task_offset < 0:
+            raise ValueError("--verifiers-v1-task-offset must be non-negative.")
+        if args.verifiers_v1_num_eval_tasks is not None and args.verifiers_v1_num_eval_tasks <= 0:
+            raise ValueError("--verifiers-v1-num-eval-tasks must be greater than zero.")
+
+        if args.partial_rollout:
+            raise ValueError(
+                "--partial-rollout is not supported for Verifiers V1 episodes. "
+                "Miles' native multi-turn rollout also rejects partial rollout because an "
+                "episode cannot be resumed from a partially executed environment state."
+            )
+        if args.multimodal_keys is not None:
+            logger.warning(
+                "--multimodal-keys maps Miles prompt-dataset columns and is ignored because "
+                "Verifiers V1 owns task loading; multimodal content in V1 task messages remains enabled."
+            )
+
     if args.mini_ft_controller_enable and args.control_server_port == 0:
         raise ValueError("--mini-ft-controller-enable requires --control-server-port to be set (non-zero)")
 
@@ -2449,7 +2520,7 @@ def miles_validate_args(args):
                 args.ckpt_step = args.ref_ckpt_step
             args.start_rollout_id = 0
 
-    if args.eval_interval is not None:
+    if args.eval_interval is not None and not args.use_verifiers_v1:
         assert args.eval_datasets, "Evaluation datasets must be configured when eval_interval is set."
 
     if args.save_interval is not None:

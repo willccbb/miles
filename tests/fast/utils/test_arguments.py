@@ -7,6 +7,7 @@ from unittest.mock import patch
 import pytest
 
 from miles.utils.arguments import (
+    VERIFIERS_V1_ROLLOUT_FUNCTION_PATH,
     _maybe_apply_dumper_overrides,
     _resolve_ft_components,
     get_miles_extra_args_provider,
@@ -147,6 +148,77 @@ def test_recompute_logprobs_via_prefill_flag_is_parsed():
     args = parser.parse_args(["--recompute-logprobs-via-prefill"] + REQUIRED_ARGS)
 
     assert args.recompute_logprobs_via_prefill is True
+
+
+def test_verifiers_v1_flags_are_parsed():
+    parser = argparse.ArgumentParser()
+    get_miles_extra_args_provider()(parser)
+
+    args = parser.parse_args(
+        [
+            "--use-verifiers-v1",
+            "--verifiers-v1-config",
+            "vf.toml",
+            "--verifiers-v1-model",
+            "served-model",
+            "--verifiers-v1-task-offset",
+            "7",
+            "--verifiers-v1-max-concurrent",
+            "16",
+            "--verifiers-v1-num-eval-tasks",
+            "4",
+        ]
+        + REQUIRED_ARGS
+    )
+
+    assert args.use_verifiers_v1 is True
+    assert args.verifiers_v1_config == "vf.toml"
+    assert args.verifiers_v1_model == "served-model"
+    assert args.verifiers_v1_task_offset == 7
+    assert args.verifiers_v1_max_concurrent == 16
+    assert args.verifiers_v1_num_eval_tasks == 4
+    assert VERIFIERS_V1_ROLLOUT_FUNCTION_PATH.endswith("generate_rollout")
+
+
+def _parse_verifiers_args(*extra: str):
+    parser = argparse.ArgumentParser()
+    get_miles_extra_args_provider()(parser)
+    return parser.parse_args(
+        [
+            "--use-verifiers-v1",
+            "--verifiers-v1-config",
+            "vf.toml",
+            "--num-rollout",
+            "1",
+            *extra,
+        ]
+        + REQUIRED_ARGS
+    )
+
+
+def test_verifiers_v1_validation_selects_adapter_and_disables_prompt_dataset():
+    args = _parse_verifiers_args("--hf-checkpoint", "test/model")
+
+    miles_validate_args(args)
+
+    assert args.rollout_function_path == VERIFIERS_V1_ROLLOUT_FUNCTION_PATH
+    assert args.rollout_global_dataset is False
+    assert args.verifiers_v1_model == "test/model"
+
+
+def test_verifiers_v1_validation_requires_config():
+    args = _parse_verifiers_args()
+    args.verifiers_v1_config = None
+
+    with pytest.raises(ValueError, match="requires --verifiers-v1-config"):
+        miles_validate_args(args)
+
+
+def test_verifiers_v1_validation_rejects_partial_rollout():
+    args = _parse_verifiers_args("--partial-rollout")
+
+    with pytest.raises(ValueError, match="cannot be resumed"):
+        miles_validate_args(args)
 
 
 def test_custom_megatron_post_save_hook_path_is_parsed():

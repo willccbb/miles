@@ -251,9 +251,8 @@ class TestPostProcessRewards:
         expected_std = float(np.std([-1.5, -0.5, 0.5, 1.5]))
         assert abs(np.std(processed) - expected_std) < 1e-5
 
-    def test_irregular_group_size_takes_view_branch(self):
-        """When `rewards.shape[-1] != n_samples_per_prompt * rollout_batch_size`,
-        the code takes the ``rewards.view(-1, rewards.shape[-1])`` branch."""
+    def test_irregular_batch_normalizes_the_observed_group(self):
+        """An irregular batch still normalizes all samples sharing a group index."""
         args = make_args(
             advantage_estimator="grpo",
             rewards_normalization=True,
@@ -261,11 +260,48 @@ class TestPostProcessRewards:
             n_samples_per_prompt=8,
             rollout_batch_size=2,
         )
-        # rewards length 4 — does not match 8 * 2 = 16; trigger view branch
+        # The observed group has four samples even though the configured batch expects 16.
         samples = make_samples_grouped(1, 4, rewards=[2.0, 4.0, 6.0, 8.0])
         _, processed = _post_process_rewards(args, samples, custom_reward_post_process_func=None)
         # mean is 5.0, after centering: -3, -1, 1, 3
         assert abs(sum(processed)) < 1e-5
+
+    def test_variable_branch_counts_normalize_by_sample_group_index(self):
+        args = make_args(
+            advantage_estimator="grpo",
+            rewards_normalization=True,
+            grpo_std_normalization=False,
+            n_samples_per_prompt=2,
+            rollout_batch_size=2,
+        )
+        samples = [
+            make_sample(group_index=10, reward=1.0),
+            make_sample(group_index=10, reward=3.0),
+            make_sample(group_index=10, reward=5.0),
+            make_sample(group_index=11, reward=20.0),
+            make_sample(group_index=11, reward=30.0),
+        ]
+
+        _, processed = _post_process_rewards(args, samples, custom_reward_post_process_func=None)
+
+        assert processed == pytest.approx([-2.0, 0.0, 2.0, -5.0, 5.0])
+
+    def test_single_sample_group_std_normalization_is_zero_not_nan(self):
+        args = make_args(
+            advantage_estimator="grpo",
+            rewards_normalization=True,
+            grpo_std_normalization=True,
+            n_samples_per_prompt=1,
+            rollout_batch_size=1,
+        )
+
+        _, processed = _post_process_rewards(
+            args,
+            [make_sample(group_index=7, reward=4.0)],
+            custom_reward_post_process_func=None,
+        )
+
+        assert processed == [0.0]
 
     def test_custom_reward_post_process_short_circuits(self):
         args = make_args(advantage_estimator="grpo", rewards_normalization=True)

@@ -102,21 +102,28 @@ def _post_process_rewards(args, samples: list[Sample] | list[list[Sample]], cust
 
     raw_rewards = [sample.get_reward_value(args) for sample in samples]
     if args.advantage_estimator in ["grpo", "gspo", "reinforce_plus_plus_baseline"] and args.rewards_normalization:
-        # group norm
-        rewards = torch.tensor(raw_rewards, dtype=torch.float)
-        if rewards.shape[-1] == args.n_samples_per_prompt * args.rollout_batch_size:
-            rewards = rewards.reshape(-1, args.n_samples_per_prompt)
+        positions_by_group: dict[int, list[int]] = {}
+        if all(sample.group_index is not None for sample in samples):
+            for position, sample in enumerate(samples):
+                positions_by_group.setdefault(sample.group_index, []).append(position)
         else:
-            # when samples count are not equal in each group
-            rewards = rewards.view(-1, rewards.shape[-1])
-        mean = rewards.mean(dim=-1, keepdim=True)
-        rewards = rewards - mean
+            positions_by_group = {
+                position
+                // args.n_samples_per_prompt: list(
+                    range(position, min(position + args.n_samples_per_prompt, len(samples)))
+                )
+                for position in range(0, len(samples), args.n_samples_per_prompt)
+            }
 
-        if args.advantage_estimator in ["grpo", "gspo"] and args.grpo_std_normalization:
-            std = rewards.std(dim=-1, keepdim=True)
-            rewards = rewards / (std + 1e-6)
-
-        return raw_rewards, rewards.flatten().tolist()
+        normalized = [0.0] * len(samples)
+        for positions in positions_by_group.values():
+            rewards = torch.tensor([raw_rewards[position] for position in positions], dtype=torch.float)
+            rewards = rewards - rewards.mean()
+            if args.advantage_estimator in ["grpo", "gspo"] and args.grpo_std_normalization:
+                rewards = rewards / (rewards.std() + 1e-6) if len(positions) > 1 else torch.zeros_like(rewards)
+            for position, reward in zip(positions, rewards.tolist(), strict=True):
+                normalized[position] = reward
+        return raw_rewards, normalized
 
     return raw_rewards, raw_rewards
 
