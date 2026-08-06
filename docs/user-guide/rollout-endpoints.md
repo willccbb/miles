@@ -33,7 +33,7 @@ Key modules:
 |---|---|
 | `miles/rollout/base_types.py` | `GenerateFnInput` / `GenerateFnOutput` |
 | `miles/rollout/inference_rollout/inference_rollout_common.py` | Builds a `GenerateState` and calls the generate function |
-| `MILES_EXPERIMENTAL_ROLLOUT_REFACTOR=1` | Enables the new path (see `examples/experimental/swe-agent-v2`) |
+| `MILES_EXPERIMENTAL_ROLLOUT_REFACTOR=1` | Enables the new path (see `examples/swe-agent-harbor-docker`) |
 
 ### Generate function basics
 
@@ -86,14 +86,14 @@ Helpers:
 
 - `compute_prompt_ids_from_sample` and `compute_request_payload` from
   `miles/rollout/generate_utils/generate_endpoint_utils.py` build `/generate` requests.
-- For multi-sample outputs, set `--generate-multi-samples` and return a list.
+- A generate function can set `GenerateFnOutput.samples` to a `Sample` or `list[Sample]`.
 
 ### Reference generators
 
 - **`single_turn.py`**: single-turn generation via `/generate`. Text or multimodal prompts.
 - **`multi_turn.py`**: multi-turn tool calling via `/generate`. Adds CLI flags
   `--generate-max-turns`, `--generate-tool-specs-path`, `--generate-tool-call-parser`,
-  `--generate-execute-tool-function-path`, `--generate-multi-samples`.
+  `--generate-execute-tool-function-path`.
 - **`benchmarkers.py`**: forces random output sequence length for benchmarking.
 
 ---
@@ -162,10 +162,10 @@ Generator entry point:
 
 Example:
 
-- [`examples/experimental/swe-agent-v2`](https://github.com/radixark/miles/tree/main/examples/experimental/swe-agent-v2):
+- [`examples/swe-agent-harbor-docker`](https://github.com/radixark/miles/tree/main/examples/swe-agent-harbor-docker):
   multi-turn agentic SWE agent on the session-server TITO path, with ready-to-run launchers.
 
-Wire-up (as used by swe-agent-v2):
+Wire-up (as used by the swe-agent example):
 
 ```bash
 CUSTOM_ARGS=(
@@ -178,6 +178,14 @@ CUSTOM_ARGS=(
 
 **Don't apply chat template.** For OpenAI format, do **not** pass `--apply-chat-template`. The prompt must
 remain a `messages` list. SGLang handles templating server-side.
+
+</Warning>
+
+<Warning>
+
+**Session server v2 output is a `list[Sample]`.** With `--use-session-server v2`, `agentic_tool_call.generate` returns one sample for each selected tree leaf. The v1 session server returns one scalar `Sample`.
+
+A custom reward model (`--custom-rm-path`) receives the v2 samples in batch form. `--group-rm`, `--partial-rollout`, and `--recompute-logprobs-via-prefill` are not supported with this v2 agentic output and are rejected explicitly.
 
 </Warning>
 
@@ -206,7 +214,7 @@ The hook is **entirely optional and safe to omit**:
 - It only fires when `--custom-agent-function-path` is set, so non-agentic runs
   never invoke it.
 
-See [`swe_agent_function.abort`](https://github.com/radixark/miles/blob/main/examples/experimental/swe-agent-v2/swe_agent_function.py)
+See [`swe_agent_function.abort`](https://github.com/radixark/miles/blob/main/examples/swe-agent-harbor-docker/swe_agent_function.py)
 for a reference implementation that flushes the Harbor agent server.
 
 ### Customizing the wrapper
@@ -217,8 +225,9 @@ is a thin wrapper around the custom agent. It:
 1. Creates a session on MilesRouter and builds a session-scoped `base_url`.
 2. Calls the custom agent (from `--custom-agent-function-path`) to send one or more
    chat requests.
-3. Collects session records via `OpenAIEndpointTracer`.
-4. Converts records into `Sample` objects via `compute_samples_from_openai_records`.
+3. Collects server-assembled `Sample` objects via `OpenAIEndpointTracer.collect_samples`
+   (the session server converts records into samples, truncates and merges on the
+   owning instance; records never leave the server).
 
 For broader customization beyond the OpenAI wrapper, see the `/generate` path above.
 
@@ -234,7 +243,7 @@ TITO needs two things from every SGLang response:
 By default, `build_chat_request_kwargs` sets both flags. The session middleware
 forwards raw `messages` to SGLang, which tokenizes the prompt and returns the
 response. `_compute_sample_from_openai_record` in
-[`openai_endpoint_utils.py`](https://github.com/radixark/miles/blob/main/miles/rollout/generate_utils/openai_endpoint_utils.py)
+[`merge.py`](https://github.com/radixark/miles/blob/main/miles/rollout/session/samples/merge.py)
 extracts prompt and output ids from the response and concatenates them into
 `sample.tokens`. You don't need to provide `input_ids` yourself.
 
@@ -255,6 +264,6 @@ inherited across turns. Each request is tokenized independently.
 ## Next
 
 - [Customization](/user-guide/customization): the full catalog of `--*-path` hooks.
-- [Agentic Chat Templates](/user-guide/agentic-chat-template): verifying that a template is
+- [Agentic Rollout (TITO)](/user-guide/agentic-chat-template): verifying that a template is
   append-only across turns.
 - [Multi-agent example](/examples/multi-agent): full agentic walkthrough.
